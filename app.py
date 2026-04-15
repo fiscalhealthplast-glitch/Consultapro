@@ -366,12 +366,12 @@ if pagina == "📋 CNPJ":
 
                 # Define a URL do CENPROT com base na UF
                 if uf_empresa == 'SP':
-                    url_cenprot = f"https://www.protestosp.com.br/consulta-gratuita-de-protesto?documento={cnpj_limpo}"
+                    url_cenprot = f"https://www.pesquisaprotesto.com.br/={cnpj_limpo}"
                 else:
-                    url_cenprot = f"https://site.cenprotnacional.org.br/?cpfcnpj={cnpj_limpo}"
+                    url_cenprot = f"https://www.pesquisaprotesto.com.br/?cpfcnpj={cnpj_limpo}"
 
                 # URL da Serasa
-                url_serasa = f"https://empresas.serasaexperian.com.br/consulta-gratis?cnpj={cnpj_limpo}"
+                url_serasa = f"https://empresas.serasaexperian.com.br/meus-produtos/login?cnpj={cnpj_limpo}"
 
                 # Cria os botões lado a lado
                 col_b1, col_b2 = st.columns(2)
