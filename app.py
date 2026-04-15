@@ -8,20 +8,20 @@ import json
 import plotly.express as px
 from io import BytesIO
 
-# --- Para PDF ---
+# --- Geração de PDF ---
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 # =========================================================
 # CONFIGURAÇÃO DA PÁGINA
 # =========================================================
 st.set_page_config(
     page_title="ConsultaPro",
-    page_icon="logo.png",   # Substitua pelo nome do seu arquivo de logo
+    page_icon="logo.png",   # <-- Altere para o nome do seu arquivo de logo
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -34,6 +34,7 @@ DB = "consultas.db"
 def init_db():
     conn = sqlite3.connect(DB)
     cur = conn.cursor()
+    # Tabela CNPJ
     cur.execute("""
     CREATE TABLE IF NOT EXISTS cnpj (
         cnpj TEXT PRIMARY KEY,
@@ -51,11 +52,14 @@ def init_db():
         data_situacao TEXT
     )
     """)
-    try:
-        cur.execute("ALTER TABLE cnpj ADD COLUMN qsa_json TEXT")
-    except sqlite3.OperationalError:
-        pass
+    # Adiciona colunas novas (upgrade automático)
+    for col in ["qsa_json", "fantasia"]:
+        try:
+            cur.execute(f"ALTER TABLE cnpj ADD COLUMN {col} TEXT")
+        except sqlite3.OperationalError:
+            pass
 
+    # Tabela CEP
     cur.execute("""
     CREATE TABLE IF NOT EXISTS cep (
         cep TEXT PRIMARY KEY,
@@ -71,7 +75,7 @@ def init_db():
 init_db()
 
 # =========================================================
-# FUNÇÕES AUXILIARES (COMPLETAS)
+# FUNÇÕES AUXILIARES
 # =========================================================
 def extrair_ie(cnpj, dados_api=None):
     """Tenta extrair a Inscrição Estadual."""
@@ -117,7 +121,7 @@ def consultar_cnpj(cnpj):
             return None
 
     data = {
-        "cnpj": cnpj, "nome": "", "cidade": "", "uf": "", "cep": "",
+        "cnpj": cnpj, "nome": "", "fantasia": "", "cidade": "", "uf": "", "cep": "",
         "situacao": "", "simples": "NÃO", "endereco": "", "ie": "",
         "email": "", "telefone": "", "cnae_descricao": "", "data_situacao": "",
         "qsa_json": "[]"
@@ -127,6 +131,7 @@ def consultar_cnpj(cnpj):
     d = get(f"https://brasilapi.com.br/api/cnpj/v1/{cnpj}")
     if d:
         data["nome"] = d.get("razao_social", "")
+        data["fantasia"] = d.get("nome_fantasia", "") or ""
         data["cidade"] = d.get("municipio", "")
         data["uf"] = d.get("uf", "")
         data["cep"] = d.get("cep", "")
@@ -145,7 +150,6 @@ def consultar_cnpj(cnpj):
 
         qsa_list = d.get("qsa", [])
         data["qsa_json"] = json.dumps(qsa_list, ensure_ascii=False) if qsa_list else "[]"
-
         data["ie"] = extrair_ie(cnpj, d)
         return data
 
@@ -153,6 +157,7 @@ def consultar_cnpj(cnpj):
     d = get(f"https://www.receitaws.com.br/v1/cnpj/{cnpj}")
     if d and d.get("status") != "ERROR":
         data["nome"] = d.get("nome", "")
+        data["fantasia"] = d.get("fantasia", "") or ""
         data["cidade"] = d.get("municipio", "") or d.get("cidade", "")
         data["uf"] = d.get("uf", "")
         data["cep"] = d.get("cep", "")
@@ -178,6 +183,7 @@ def consultar_cnpj(cnpj):
     d = get(f"https://publica.cnpj.ws/cnpj/{cnpj}")
     if d:
         data["nome"] = d.get("razao_social", "")
+        data["fantasia"] = d.get("nome_fantasia", "") or ""
         estab = d.get("estabelecimento", {})
         data["cidade"] = estab.get("cidade", {}).get("nome", "")
         data["uf"] = estab.get("estado", {}).get("sigla", "")
@@ -222,10 +228,8 @@ def consultar_cep(cep):
     except:
         return {}
 
-# =========================================================
-# GERAÇÃO DE PDF
-# =========================================================
 def gerar_pdf_cnpj(dados_cnpj):
+    """Gera um PDF em memória com os detalhes do CNPJ e QSA."""
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
                             rightMargin=2*cm, leftMargin=2*cm,
@@ -233,23 +237,14 @@ def gerar_pdf_cnpj(dados_cnpj):
     story = []
     styles = getSampleStyleSheet()
 
-    titulo_style = ParagraphStyle(
-        'Titulo',
-        parent=styles['Heading1'],
-        fontSize=18,
-        alignment=TA_CENTER,
-        spaceAfter=20,
-        textColor=colors.HexColor('#1e3a8a')
-    )
-    subtitulo_style = ParagraphStyle(
-        'Subtitulo',
-        parent=styles['Heading2'],
-        fontSize=14,
-        spaceBefore=15,
-        spaceAfter=10,
-        textColor=colors.HexColor('#334155')
-    )
-    normal_style = styles['Normal']
+    titulo_style = ParagraphStyle('Titulo', parent=styles['Heading1'],
+                                  fontSize=18, alignment=TA_CENTER, spaceAfter=20,
+                                  textColor=colors.HexColor('#1e3a8a'))
+    subtitulo_style = ParagraphStyle('Subtitulo', parent=styles['Heading2'],
+                                     fontSize=14, spaceBefore=15, spaceAfter=10,
+                                     textColor=colors.HexColor('#334155'))
+    normal_style = ParagraphStyle('Normal', parent=styles['Normal'],
+                                  fontSize=11, alignment=TA_LEFT, spaceAfter=5)
 
     story.append(Paragraph("Relatório de Consulta CNPJ", titulo_style))
     story.append(Spacer(1, 0.5*cm))
@@ -257,14 +252,15 @@ def gerar_pdf_cnpj(dados_cnpj):
     dados_basicos = [
         ["CNPJ:", dados_cnpj.get('cnpj', '')],
         ["Razão Social:", dados_cnpj.get('nome', '')],
+        ["Nome Fantasia:", dados_cnpj.get('fantasia', 'Não informado')],
         ["Endereço:", f"{dados_cnpj.get('endereco', '')} - CEP {dados_cnpj.get('cep', '')}"],
         ["Cidade/UF:", f"{dados_cnpj.get('cidade', '')}/{dados_cnpj.get('uf', '')}"],
-        ["Situação Cadastral:", f"{dados_cnpj.get('situacao', '')} (desde {dados_cnpj.get('data_situacao', '')})"],
-        ["Opção pelo Simples:", dados_cnpj.get('simples', '')],
-        ["Inscrição Estadual:", dados_cnpj.get('ie', 'Não informada')],
+        ["Situação:", f"{dados_cnpj.get('situacao', '')} (desde {dados_cnpj.get('data_situacao', '')})"],
+        ["Simples:", dados_cnpj.get('simples', '')],
+        ["IE:", dados_cnpj.get('ie', 'Não informada')],
         ["E-mail:", dados_cnpj.get('email', 'Não informado')],
         ["Telefone:", dados_cnpj.get('telefone', 'Não informado')],
-        ["CNAE Principal:", dados_cnpj.get('cnae_descricao', 'Não informado')],
+        ["CNAE:", dados_cnpj.get('cnae_descricao', 'Não informado')],
     ]
 
     tabela_dados = Table(dados_basicos, colWidths=[4*cm, 12*cm])
@@ -321,7 +317,7 @@ def gerar_pdf_cnpj(dados_cnpj):
 # =========================================================
 col1, col2, col3 = st.sidebar.columns([1, 2, 1])
 with col2:
-    st.image("logo.png", use_column_width=True)
+    st.image("logo.png", use_column_width=True)  # <-- Altere para o nome do seu arquivo
 st.sidebar.markdown("<h3 style='text-align: center;'>ConsultaPro</h3>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 
@@ -363,11 +359,11 @@ if pagina == "📋 CNPJ":
                     cur = conn.cursor()
                     cur.execute("""
                         INSERT OR REPLACE INTO cnpj
-                        (cnpj, nome, cidade, uf, cep, situacao, simples, endereco, ie,
+                        (cnpj, nome, fantasia, cidade, uf, cep, situacao, simples, endereco, ie,
                          email, telefone, cnae_descricao, data_situacao, qsa_json)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """, (
-                        dados["cnpj"], dados["nome"], dados["cidade"], dados["uf"], dados["cep"],
+                        dados["cnpj"], dados["nome"], dados["fantasia"], dados["cidade"], dados["uf"], dados["cep"],
                         dados["situacao"], dados["simples"], dados["endereco"], dados["ie"],
                         dados["email"], dados["telefone"], dados["cnae_descricao"], dados["data_situacao"],
                         dados["qsa_json"]
@@ -400,7 +396,7 @@ if pagina == "📋 CNPJ":
             idx = evento.selection.rows[0]
             selecionado = df.iloc[idx]
 
-            # Botões Excel e PDF
+            # Botões de exportação
             col_btn1, col_btn2, _ = st.columns([1, 1, 4])
             with col_btn1:
                 output_excel = BytesIO()
@@ -431,6 +427,7 @@ if pagina == "📋 CNPJ":
                 with col_a:
                     st.markdown(f"**CNPJ:** {selecionado['cnpj']}")
                     st.markdown(f"**Razão Social:** {selecionado['nome']}")
+                    st.markdown(f"**Nome Fantasia:** {selecionado.get('fantasia', 'Não informado')}")
                     st.markdown(f"**Endereço:** {selecionado['endereco']} - CEP {selecionado['cep']}")
                     st.markdown(f"**Cidade/UF:** {selecionado['cidade']}/{selecionado['uf']}")
                     st.markdown(f"**E-mail:** {selecionado['email'] or 'Não informado'}")
@@ -462,7 +459,7 @@ if pagina == "📋 CNPJ":
                 except json.JSONDecodeError:
                     st.warning("Erro ao processar os dados do QSA.")
 
-                # Links externos
+                # Links CENPROT e Serasa
                 st.markdown("---")
                 st.subheader("🔍 Consultas de Inadimplência (Links Externos)")
                 cnpj_limpo = re.sub(r'\D', '', selecionado['cnpj'])
@@ -558,10 +555,10 @@ elif pagina == "📊 Dashboard":
                 st.plotly_chart(fig2, use_container_width=True)
 
         st.subheader("📋 Últimas consultas")
-        colunas_exibir = ["cnpj", "nome", "cidade", "uf", "situacao"]
+        colunas_exibir = ["cnpj", "nome", "fantasia", "cidade", "uf", "situacao"]
         colunas_disponiveis = [c for c in colunas_exibir if c in df_cnpj.columns]
         df_hist = df_cnpj[colunas_disponiveis].tail(10).copy()
-        df_hist.columns = ["CNPJ", "Razão Social", "Cidade", "UF", "Situação"]
+        df_hist.columns = ["CNPJ", "Razão Social", "Nome Fantasia", "Cidade", "UF", "Situação"]
         st.dataframe(df_hist, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhum dado histórico ainda. Faça uma consulta primeiro!")
