@@ -21,7 +21,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 # =========================================================
 st.set_page_config(
     page_title="ConsultaPro",
-    page_icon="logo.png",   # <-- Altere para o nome do seu arquivo de logo
+    page_icon="logo.png",   # Altere para o nome do seu arquivo de logo
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -229,53 +229,87 @@ def consultar_cep(cep):
         return {}
 
 def gerar_pdf_cnpj(dados_cnpj):
-    """Gera um PDF em memória com os detalhes do CNPJ e QSA."""
+    """Gera um PDF em memória com os detalhes do CNPJ e QSA, com quebra de linha em textos longos."""
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
-                            rightMargin=2*cm, leftMargin=2*cm,
-                            topMargin=2*cm, bottomMargin=2*cm)
+                            rightMargin=1.5*cm, leftMargin=1.5*cm,
+                            topMargin=1.5*cm, bottomMargin=1.5*cm)
     story = []
     styles = getSampleStyleSheet()
 
-    titulo_style = ParagraphStyle('Titulo', parent=styles['Heading1'],
-                                  fontSize=18, alignment=TA_CENTER, spaceAfter=20,
-                                  textColor=colors.HexColor('#1e3a8a'))
-    subtitulo_style = ParagraphStyle('Subtitulo', parent=styles['Heading2'],
-                                     fontSize=14, spaceBefore=15, spaceAfter=10,
-                                     textColor=colors.HexColor('#334155'))
-    normal_style = ParagraphStyle('Normal', parent=styles['Normal'],
-                                  fontSize=11, alignment=TA_LEFT, spaceAfter=5)
+    # Estilo para células com quebra de linha
+    cell_style = ParagraphStyle(
+        'CellStyle',
+        parent=styles['Normal'],
+        fontSize=10,
+        leading=12,
+        alignment=TA_LEFT,
+        wordWrap='CJK'
+    )
+
+    titulo_style = ParagraphStyle(
+        'Titulo',
+        parent=styles['Heading1'],
+        fontSize=18,
+        alignment=TA_CENTER,
+        spaceAfter=20,
+        textColor=colors.HexColor('#1e3a8a')
+    )
+    subtitulo_style = ParagraphStyle(
+        'Subtitulo',
+        parent=styles['Heading2'],
+        fontSize=13,
+        spaceBefore=12,
+        spaceAfter=8,
+        textColor=colors.HexColor('#334155')
+    )
+    normal_style = ParagraphStyle(
+        'Normal',
+        parent=styles['Normal'],
+        fontSize=10,
+        alignment=TA_LEFT,
+        spaceAfter=4
+    )
 
     story.append(Paragraph("Relatório de Consulta CNPJ", titulo_style))
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.3*cm))
 
+    # Dados principais como pares (rótulo, valor)
     dados_basicos = [
-        ["CNPJ:", dados_cnpj.get('cnpj', '')],
-        ["Razão Social:", dados_cnpj.get('nome', '')],
-        ["Nome Fantasia:", dados_cnpj.get('fantasia', 'Não informado')],
-        ["Endereço:", f"{dados_cnpj.get('endereco', '')} - CEP {dados_cnpj.get('cep', '')}"],
-        ["Cidade/UF:", f"{dados_cnpj.get('cidade', '')}/{dados_cnpj.get('uf', '')}"],
-        ["Situação:", f"{dados_cnpj.get('situacao', '')} (desde {dados_cnpj.get('data_situacao', '')})"],
-        ["Simples:", dados_cnpj.get('simples', '')],
-        ["IE:", dados_cnpj.get('ie', 'Não informada')],
-        ["E-mail:", dados_cnpj.get('email', 'Não informado')],
-        ["Telefone:", dados_cnpj.get('telefone', 'Não informado')],
-        ["CNAE:", dados_cnpj.get('cnae_descricao', 'Não informado')],
+        ("CNPJ:", dados_cnpj.get('cnpj', '')),
+        ("Razão Social:", dados_cnpj.get('nome', '')),
+        ("Nome Fantasia:", dados_cnpj.get('fantasia', 'Não informado')),
+        ("Endereço:", f"{dados_cnpj.get('endereco', '')} - CEP {dados_cnpj.get('cep', '')}"),
+        ("Cidade/UF:", f"{dados_cnpj.get('cidade', '')}/{dados_cnpj.get('uf', '')}"),
+        ("Situação:", f"{dados_cnpj.get('situacao', '')} (desde {dados_cnpj.get('data_situacao', '')})"),
+        ("Simples:", dados_cnpj.get('simples', '')),
+        ("IE:", dados_cnpj.get('ie', 'Não informada')),
+        ("E-mail:", dados_cnpj.get('email', 'Não informado')),
+        ("Telefone:", dados_cnpj.get('telefone', 'Não informado')),
+        ("CNAE:", dados_cnpj.get('cnae_descricao', 'Não informado')),
     ]
 
-    tabela_dados = Table(dados_basicos, colWidths=[4*cm, 12*cm])
+    table_data = []
+    for rotulo, valor in dados_basicos:
+        valor_para = Paragraph(str(valor), cell_style)
+        table_data.append([Paragraph(rotulo, cell_style), valor_para])
+
+    tabela_dados = Table(table_data, colWidths=[3.8*cm, 12*cm])
     tabela_dados.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#f1f5f9')),
         ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
-        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('ALIGN', (0,0), (0,-1), 'RIGHT'),
+        ('ALIGN', (1,0), (1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
-        ('FONTSIZE', (0,0), (-1,-1), 11),
         ('BOTTOMPADDING', (0,0), (-1,-1), 6),
         ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+        ('RIGHTPADDING', (0,0), (-1,-1), 4),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
     ]))
     story.append(tabela_dados)
-    story.append(Spacer(1, 0.8*cm))
+    story.append(Spacer(1, 0.5*cm))
 
     # QSA
     qsa_str = dados_cnpj.get('qsa_json', '[]')
@@ -283,18 +317,23 @@ def gerar_pdf_cnpj(dados_cnpj):
         socios = json.loads(qsa_str)
         if socios:
             story.append(Paragraph("Quadro de Sócios e Administradores (QSA)", subtitulo_style))
-            qsa_data = [["Nome", "Qualificação", "Data de Entrada"]]
+            qsa_data = [[
+                Paragraph("Nome", cell_style),
+                Paragraph("Qualificação", cell_style),
+                Paragraph("Data de Entrada", cell_style)
+            ]]
             for s in socios:
                 qsa_data.append([
-                    s.get('nome_socio', ''),
-                    s.get('qualificacao_socio', ''),
-                    s.get('data_entrada_sociedade', '')
+                    Paragraph(s.get('nome_socio', ''), cell_style),
+                    Paragraph(s.get('qualificacao_socio', ''), cell_style),
+                    Paragraph(s.get('data_entrada_sociedade', ''), cell_style)
                 ])
             tabela_qsa = Table(qsa_data, colWidths=[7*cm, 5*cm, 4*cm])
             tabela_qsa.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e3a8a')),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.white),
                 ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
                 ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0,0), (-1,-1), 10),
                 ('BOTTOMPADDING', (0,0), (-1,0), 8),
@@ -304,7 +343,7 @@ def gerar_pdf_cnpj(dados_cnpj):
     except:
         pass
 
-    story.append(Spacer(1, 1*cm))
+    story.append(Spacer(1, 0.5*cm))
     story.append(Paragraph(f"Relatório gerado em {time.strftime('%d/%m/%Y %H:%M')}", normal_style))
     story.append(Paragraph("ConsultaPro - Sistema de Consultas Comerciais", normal_style))
 
@@ -317,7 +356,7 @@ def gerar_pdf_cnpj(dados_cnpj):
 # =========================================================
 col1, col2, col3 = st.sidebar.columns([1, 2, 1])
 with col2:
-    st.image("logo.png", use_column_width=True)  # <-- Altere para o nome do seu arquivo
+    st.image("logo.png", use_column_width=True)  # Altere para o nome do seu arquivo
 st.sidebar.markdown("<h3 style='text-align: center;'>ConsultaPro</h3>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 
@@ -459,7 +498,7 @@ if pagina == "📋 CNPJ":
                 except json.JSONDecodeError:
                     st.warning("Erro ao processar os dados do QSA.")
 
-                # Links CENPROT e Serasa
+                # Links CENPROT e Serasa (conforme você definiu)
                 st.markdown("---")
                 st.subheader("🔍 Consultas de Inadimplência (Links Externos)")
                 cnpj_limpo = re.sub(r'\D', '', selecionado['cnpj'])
