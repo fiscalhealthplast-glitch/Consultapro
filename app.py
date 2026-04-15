@@ -8,8 +8,16 @@ import json
 import plotly.express as px
 from io import BytesIO
 
+# --- Para PDF ---
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.enums import TA_CENTER
+
 # =========================================================
-# CONFIGURAÇÃO DA PÁGINA (com logo como favicon)
+# CONFIGURAÇÃO DA PÁGINA
 # =========================================================
 st.set_page_config(
     page_title="ConsultaPro",
@@ -26,7 +34,6 @@ DB = "consultas.db"
 def init_db():
     conn = sqlite3.connect(DB)
     cur = conn.cursor()
-    # Tabela CNPJ
     cur.execute("""
     CREATE TABLE IF NOT EXISTS cnpj (
         cnpj TEXT PRIMARY KEY,
@@ -44,13 +51,11 @@ def init_db():
         data_situacao TEXT
     )
     """)
-    # Adiciona coluna qsa_json se não existir (upgrade)
     try:
         cur.execute("ALTER TABLE cnpj ADD COLUMN qsa_json TEXT")
     except sqlite3.OperationalError:
         pass
 
-    # Tabela CEP
     cur.execute("""
     CREATE TABLE IF NOT EXISTS cep (
         cep TEXT PRIMARY KEY,
@@ -66,7 +71,7 @@ def init_db():
 init_db()
 
 # =========================================================
-# FUNÇÕES AUXILIARES
+# FUNÇÕES AUXILIARES (COMPLETAS)
 # =========================================================
 def extrair_ie(cnpj, dados_api=None):
     """Tenta extrair a Inscrição Estadual."""
@@ -218,13 +223,105 @@ def consultar_cep(cep):
         return {}
 
 # =========================================================
+# GERAÇÃO DE PDF
+# =========================================================
+def gerar_pdf_cnpj(dados_cnpj):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                            rightMargin=2*cm, leftMargin=2*cm,
+                            topMargin=2*cm, bottomMargin=2*cm)
+    story = []
+    styles = getSampleStyleSheet()
+
+    titulo_style = ParagraphStyle(
+        'Titulo',
+        parent=styles['Heading1'],
+        fontSize=18,
+        alignment=TA_CENTER,
+        spaceAfter=20,
+        textColor=colors.HexColor('#1e3a8a')
+    )
+    subtitulo_style = ParagraphStyle(
+        'Subtitulo',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceBefore=15,
+        spaceAfter=10,
+        textColor=colors.HexColor('#334155')
+    )
+    normal_style = styles['Normal']
+
+    story.append(Paragraph("Relatório de Consulta CNPJ", titulo_style))
+    story.append(Spacer(1, 0.5*cm))
+
+    dados_basicos = [
+        ["CNPJ:", dados_cnpj.get('cnpj', '')],
+        ["Razão Social:", dados_cnpj.get('nome', '')],
+        ["Endereço:", f"{dados_cnpj.get('endereco', '')} - CEP {dados_cnpj.get('cep', '')}"],
+        ["Cidade/UF:", f"{dados_cnpj.get('cidade', '')}/{dados_cnpj.get('uf', '')}"],
+        ["Situação Cadastral:", f"{dados_cnpj.get('situacao', '')} (desde {dados_cnpj.get('data_situacao', '')})"],
+        ["Opção pelo Simples:", dados_cnpj.get('simples', '')],
+        ["Inscrição Estadual:", dados_cnpj.get('ie', 'Não informada')],
+        ["E-mail:", dados_cnpj.get('email', 'Não informado')],
+        ["Telefone:", dados_cnpj.get('telefone', 'Não informado')],
+        ["CNAE Principal:", dados_cnpj.get('cnae_descricao', 'Não informado')],
+    ]
+
+    tabela_dados = Table(dados_basicos, colWidths=[4*cm, 12*cm])
+    tabela_dados.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#f1f5f9')),
+        ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
+        ('FONTSIZE', (0,0), (-1,-1), 11),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+    ]))
+    story.append(tabela_dados)
+    story.append(Spacer(1, 0.8*cm))
+
+    # QSA
+    qsa_str = dados_cnpj.get('qsa_json', '[]')
+    try:
+        socios = json.loads(qsa_str)
+        if socios:
+            story.append(Paragraph("Quadro de Sócios e Administradores (QSA)", subtitulo_style))
+            qsa_data = [["Nome", "Qualificação", "Data de Entrada"]]
+            for s in socios:
+                qsa_data.append([
+                    s.get('nome_socio', ''),
+                    s.get('qualificacao_socio', ''),
+                    s.get('data_entrada_sociedade', '')
+                ])
+            tabela_qsa = Table(qsa_data, colWidths=[7*cm, 5*cm, 4*cm])
+            tabela_qsa.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e3a8a')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0,0), (-1,-1), 10),
+                ('BOTTOMPADDING', (0,0), (-1,0), 8),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ]))
+            story.append(tabela_qsa)
+    except:
+        pass
+
+    story.append(Spacer(1, 1*cm))
+    story.append(Paragraph(f"Relatório gerado em {time.strftime('%d/%m/%Y %H:%M')}", normal_style))
+    story.append(Paragraph("ConsultaPro - Sistema de Consultas Comerciais", normal_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# =========================================================
 # INTERFACE STREAMLIT
 # =========================================================
-
-# --- SIDEBAR COM LOGO ---
 col1, col2, col3 = st.sidebar.columns([1, 2, 1])
 with col2:
-    st.image("logo.png", use_column_width=True)  # Substitua pelo nome do seu arquivo
+    st.image("logo.png", use_column_width=True)
 st.sidebar.markdown("<h3 style='text-align: center;'>ConsultaPro</h3>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 
@@ -299,26 +396,35 @@ if pagina == "📋 CNPJ":
             on_select="rerun"
         )
 
-        # Botão de exportação
-        st.markdown("---")
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_export = df.drop(columns=['qsa_json'], errors='ignore')
-            df_export.to_excel(writer, sheet_name='CNPJs', index=False)
-        output.seek(0)
-        col_exp1, _ = st.columns([1, 4])
-        with col_exp1:
-            st.download_button(
-                label="📥 Exportar Excel",
-                data=output,
-                file_name="consulta_cnpj.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-
         if evento.selection.rows:
             idx = evento.selection.rows[0]
             selecionado = df.iloc[idx]
+
+            # Botões Excel e PDF
+            col_btn1, col_btn2, _ = st.columns([1, 1, 4])
+            with col_btn1:
+                output_excel = BytesIO()
+                with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+                    df_export = df.drop(columns=['qsa_json'], errors='ignore')
+                    df_export.to_excel(writer, sheet_name='CNPJs', index=False)
+                output_excel.seek(0)
+                st.download_button(
+                    label="📥 Excel",
+                    data=output_excel,
+                    file_name="consulta_cnpj.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            with col_btn2:
+                pdf_buffer = gerar_pdf_cnpj(selecionado)
+                st.download_button(
+                    label="📄 Salvar PDF",
+                    data=pdf_buffer,
+                    file_name=f"CNPJ_{selecionado['cnpj']}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
             st.subheader("🔎 Detalhes do CNPJ selecionado")
             with st.container(border=True):
                 col_a, col_b = st.columns(2)
@@ -356,24 +462,16 @@ if pagina == "📋 CNPJ":
                 except json.JSONDecodeError:
                     st.warning("Erro ao processar os dados do QSA.")
 
-                # --- BOTÕES PARA CENPROT E SERASA (INTELIGENTES) ---
+                # Links externos
                 st.markdown("---")
                 st.subheader("🔍 Consultas de Inadimplência (Links Externos)")
-
-                # Prepara o CNPJ limpo e identifica o estado
                 cnpj_limpo = re.sub(r'\D', '', selecionado['cnpj'])
                 uf_empresa = str(selecionado.get('uf', '')).upper()
-
-                # Define a URL do CENPROT com base na UF
                 if uf_empresa == 'SP':
                     url_cenprot = f"https://www.pesquisaprotesto.com.br/login"
                 else:
                     url_cenprot = f"https://www.pesquisaprotesto.com.br/login"
-
-                # URL da Serasa
                 url_serasa = f"https://empresas.serasaexperian.com.br/meus-produtos/login"
-
-                # Cria os botões lado a lado
                 col_b1, col_b2 = st.columns(2)
                 with col_b1:
                     st.link_button("📋 Consultar no CENPROT", url_cenprot, use_container_width=True)
