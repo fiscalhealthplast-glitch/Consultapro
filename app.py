@@ -300,6 +300,7 @@ if pagina == "📋 CNPJ":
                     st.markdown(f"**CNAE Principal:** {selecionado['cnae_descricao'] or 'Não informado'}")
 
 # ------------------- CEP -------------------
+# ------------------- CEP -------------------
 elif pagina == "📍 CEP":
     st.header("Consulta de CEP")
     st.markdown("Insira os CEPs (um por linha)")
@@ -319,27 +320,46 @@ elif pagina == "📍 CEP":
                 progress_bar = st.progress(0)
                 for i, cep in enumerate(lista):
                     dados = consultar_cep(cep)
-                    resultados_cep.append(dados)
-                    if "erro" not in dados:
+                    # Se a consulta retornou um CEP válido (tem a chave 'cep')
+                    if dados and "cep" in dados and "erro" not in dados:
+                        # Extrai apenas os campos de interesse
+                        item = {
+                            "CEP": dados.get("cep", ""),
+                            "Logradouro": dados.get("logradouro", ""),
+                            "Bairro": dados.get("bairro", ""),
+                            "Cidade": dados.get("localidade", ""),
+                            "UF": dados.get("uf", "")
+                        }
+                        resultados_cep.append(item)
+                        # Salvar no banco (opcional)
                         conn = sqlite3.connect(DB)
                         cur = conn.cursor()
                         cur.execute("""
                             INSERT OR REPLACE INTO cep (cep, logradouro, bairro, cidade, uf)
                             VALUES (?,?,?,?,?)
                         """, (
-                            dados.get("cep", ""), dados.get("logradouro", ""),
-                            dados.get("bairro", ""), dados.get("localidade", ""),
-                            dados.get("uf", "")
+                            item["CEP"], item["Logradouro"], item["Bairro"],
+                            item["Cidade"], item["UF"]
                         ))
                         conn.commit()
                         conn.close()
+                    else:
+                        # Adiciona uma linha de erro para exibição
+                        resultados_cep.append({
+                            "CEP": cep,
+                            "Logradouro": "CEP inválido ou não encontrado",
+                            "Bairro": "-",
+                            "Cidade": "-",
+                            "UF": "-"
+                        })
                     progress_bar.progress((i+1)/len(lista))
                     time.sleep(0.2)
                 st.success("Consulta concluída!")
-                df_cep = pd.DataFrame(resultados_cep)
-                df_cep.columns = ["CEP", "Logradouro", "Complemento", "Bairro", "Cidade", "UF", "IBGE", "GIA", "DDD", "SIAFI"]
-                st.dataframe(df_cep[["CEP", "Logradouro", "Bairro", "Cidade", "UF"]], use_container_width=True, hide_index=True)
-
+                if resultados_cep:
+                    df_cep = pd.DataFrame(resultados_cep)
+                    st.dataframe(df_cep, use_container_width=True, hide_index=True)
+                else:
+                    st.warning("Nenhum CEP válido foi retornado.")
 # ------------------- DASHBOARD -------------------
 elif pagina == "📊 Dashboard":
     st.header("Dashboard")
