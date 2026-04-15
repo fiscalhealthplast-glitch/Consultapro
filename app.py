@@ -9,11 +9,11 @@ import plotly.express as px
 from io import BytesIO
 
 # =========================================================
-# CONFIGURAÇÃO DA PÁGINA
+# CONFIGURAÇÃO DA PÁGINA (com logo como favicon)
 # =========================================================
 st.set_page_config(
     page_title="ConsultaPro",
-    page_icon="🏢",
+    page_icon="logo.png",   # Substitua pelo nome do seu arquivo de logo
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -69,9 +69,7 @@ init_db()
 # FUNÇÕES AUXILIARES
 # =========================================================
 def extrair_ie(cnpj, dados_api=None):
-    """
-    Tenta extrair a Inscrição Estadual a partir dos dados já obtidos ou fazendo nova consulta.
-    """
+    """Tenta extrair a Inscrição Estadual."""
     if dados_api:
         estab = dados_api.get("estabelecimento")
         if isinstance(estab, dict):
@@ -103,7 +101,7 @@ def extrair_ie(cnpj, dados_api=None):
     return ""
 
 def consultar_cnpj(cnpj):
-    """Consulta um CNPJ nas APIs públicas e retorna um dicionário com todos os dados."""
+    """Consulta um CNPJ nas APIs públicas."""
     cnpj = re.sub(r'\D', '', cnpj)
 
     def get(url):
@@ -140,14 +138,13 @@ def consultar_cnpj(cnpj):
         data["cnae_descricao"] = d.get("cnae_fiscal_descricao", "") or ""
         data["data_situacao"] = d.get("data_situacao_cadastral", "") or ""
 
-        # Extrair QSA
         qsa_list = d.get("qsa", [])
         data["qsa_json"] = json.dumps(qsa_list, ensure_ascii=False) if qsa_list else "[]"
 
         data["ie"] = extrair_ie(cnpj, d)
         return data
 
-    # 2) ReceitaWS (fallback)
+    # 2) ReceitaWS
     d = get(f"https://www.receitaws.com.br/v1/cnpj/{cnpj}")
     if d and d.get("status") != "ERROR":
         data["nome"] = d.get("nome", "")
@@ -168,12 +165,11 @@ def consultar_cnpj(cnpj):
         data["data_situacao"] = d.get("data_situacao", "") or ""
         data["ie"] = d.get("inscricao_estadual", "") or extrair_ie(cnpj)
 
-        # QSA da ReceitaWS
         qsa_list = d.get("qsa", [])
         data["qsa_json"] = json.dumps(qsa_list, ensure_ascii=False) if qsa_list else "[]"
         return data
 
-    # 3) CNPJ.ws (último fallback)
+    # 3) CNPJ.ws
     d = get(f"https://publica.cnpj.ws/cnpj/{cnpj}")
     if d:
         data["nome"] = d.get("razao_social", "")
@@ -196,7 +192,6 @@ def consultar_cnpj(cnpj):
         data["data_situacao"] = estab.get("data_situacao_cadastral", "") or ""
         data["ie"] = extrair_ie(cnpj, d)
 
-        # QSA do CNPJ.ws
         socios = d.get("socios", [])
         qsa_list = []
         for s in socios:
@@ -212,7 +207,7 @@ def consultar_cnpj(cnpj):
     return data
 
 def consultar_cep(cep):
-    """Consulta um CEP na ViaCEP e retorna os dados."""
+    """Consulta um CEP na ViaCEP."""
     cep = re.sub(r'\D', '', cep)
     if not cep:
         return {}
@@ -225,8 +220,14 @@ def consultar_cep(cep):
 # =========================================================
 # INTERFACE STREAMLIT
 # =========================================================
-st.sidebar.markdown("# 🏢 ConsultaPro")
+
+# --- SIDEBAR COM LOGO ---
+col1, col2, col3 = st.sidebar.columns([1, 2, 1])
+with col2:
+    st.image("logo.png", use_column_width=True)  # Substitua pelo nome do seu arquivo
+st.sidebar.markdown("<h3 style='text-align: center;'>ConsultaPro</h3>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
+
 pagina = st.sidebar.radio("Navegação", ["📋 CNPJ", "📍 CEP", "📊 Dashboard"])
 
 # ------------------- CNPJ -------------------
@@ -261,7 +262,6 @@ if pagina == "📋 CNPJ":
                 for i, cnpj in enumerate(lista):
                     dados = consultar_cnpj(cnpj)
                     resultados.append(dados)
-                    # Salvar no banco
                     conn = sqlite3.connect(DB)
                     cur = conn.cursor()
                     cur.execute("""
@@ -299,16 +299,14 @@ if pagina == "📋 CNPJ":
             on_select="rerun"
         )
 
-        # ---------- BOTÃO DE EXPORTAÇÃO ----------
+        # Botão de exportação
         st.markdown("---")
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # Aba principal com todos os dados (exceto qsa_json)
             df_export = df.drop(columns=['qsa_json'], errors='ignore')
             df_export.to_excel(writer, sheet_name='CNPJs', index=False)
         output.seek(0)
-        
-        col_exp1, col_exp2 = st.columns([1, 4])
+        col_exp1, _ = st.columns([1, 4])
         with col_exp1:
             st.download_button(
                 label="📥 Exportar Excel",
@@ -317,7 +315,6 @@ if pagina == "📋 CNPJ":
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-        # -----------------------------------------
 
         if evento.selection.rows:
             idx = evento.selection.rows[0]
@@ -338,7 +335,7 @@ if pagina == "📋 CNPJ":
                     st.markdown(f"**Telefone:** {selecionado['telefone'] or 'Não informado'}")
                     st.markdown(f"**CNAE Principal:** {selecionado['cnae_descricao'] or 'Não informado'}")
 
-                # Exibição do QSA
+                # QSA
                 qsa_str = selecionado.get('qsa_json', '[]')
                 try:
                     socios = json.loads(qsa_str)
@@ -355,7 +352,7 @@ if pagina == "📋 CNPJ":
                         else:
                             st.info("Dados de QSA em formato desconhecido.")
                     else:
-                        st.info("Nenhum dado de QSA disponível para este CNPJ.")
+                        st.info("Nenhum dado de QSA disponível.")
                 except json.JSONDecodeError:
                     st.warning("Erro ao processar os dados do QSA.")
 
@@ -388,16 +385,12 @@ elif pagina == "📍 CEP":
                             "UF": dados.get("uf", "")
                         }
                         resultados_cep.append(item)
-                        # Salvar no banco
                         conn = sqlite3.connect(DB)
                         cur = conn.cursor()
                         cur.execute("""
                             INSERT OR REPLACE INTO cep (cep, logradouro, bairro, cidade, uf)
                             VALUES (?,?,?,?,?)
-                        """, (
-                            item["CEP"], item["Logradouro"], item["Bairro"],
-                            item["Cidade"], item["UF"]
-                        ))
+                        """, (item["CEP"], item["Logradouro"], item["Bairro"], item["Cidade"], item["UF"]))
                         conn.commit()
                         conn.close()
                     else:
@@ -443,7 +436,6 @@ elif pagina == "📊 Dashboard":
                 st.plotly_chart(fig2, use_container_width=True)
 
         st.subheader("📋 Últimas consultas")
-        # Seleciona apenas colunas relevantes (exclui qsa_json e outros detalhes)
         colunas_exibir = ["cnpj", "nome", "cidade", "uf", "situacao"]
         colunas_disponiveis = [c for c in colunas_exibir if c in df_cnpj.columns]
         df_hist = df_cnpj[colunas_disponiveis].tail(10).copy()
