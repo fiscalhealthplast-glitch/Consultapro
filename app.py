@@ -4,6 +4,7 @@ import sqlite3
 import requests
 import time
 import re
+import json
 import plotly.express as px
 
 # =========================================================
@@ -24,6 +25,7 @@ DB = "consultas.db"
 def init_db():
     conn = sqlite3.connect(DB)
     cur = conn.cursor()
+    # Tabela CNPJ
     cur.execute("""
     CREATE TABLE IF NOT EXISTS cnpj (
         cnpj TEXT PRIMARY KEY,
@@ -41,12 +43,13 @@ def init_db():
         data_situacao TEXT
     )
     """)
-    conn.commit()
-    conn.close()
+    # Adiciona coluna qsa_json se não existir (upgrade)
+    try:
+        cur.execute("ALTER TABLE cnpj ADD COLUMN qsa_json TEXT")
+    except sqlite3.OperationalError:
+        pass
 
-    # Cria tabela CEP
-    conn = sqlite3.connect(DB)
-    cur = conn.cursor()
+    # Tabela CEP
     cur.execute("""
     CREATE TABLE IF NOT EXISTS cep (
         cep TEXT PRIMARY KEY,
@@ -68,14 +71,11 @@ def extrair_ie(cnpj, dados_api=None):
     """
     Tenta extrair a Inscrição Estadual a partir dos dados já obtidos ou fazendo nova consulta.
     """
-    # Se recebeu dados da BrasilAPI ou CNPJ.ws, procura neles primeiro
     if dados_api:
         estab = dados_api.get("estabelecimento")
         if isinstance(estab, dict):
-            # IE direta
             if estab.get("inscricao_estadual"):
                 return estab.get("inscricao_estadual")
-            # Lista de inscrições estaduais
             ies = estab.get("inscricoes_estaduais")
             if isinstance(ies, list):
                 for item in ies:
@@ -83,7 +83,6 @@ def extrair_ie(cnpj, dados_api=None):
                     if ie:
                         return ie
 
-    # Tenta consulta específica na CNPJ.ws (que geralmente tem a IE)
     try:
         r = requests.get(f"https://publica.cnpj.ws/cnpj/{cnpj}", timeout=10,
                          headers={"User-Agent": "Mozilla/5.0"})
@@ -100,8 +99,7 @@ def extrair_ie(cnpj, dados_api=None):
                     return ie
     except:
         pass
-
-    return ""  # Retorna vazio se não encontrou
+    return ""
 
 def consultar_cnpj(cnpj):
     """Consulta um CNPJ nas APIs públicas e retorna um dicionário com todos os dados."""
@@ -117,7 +115,8 @@ def consultar_cnpj(cnpj):
     data = {
         "cnpj": cnpj, "nome": "", "cidade": "", "uf": "", "cep": "",
         "situacao": "", "simples": "NÃO", "endereco": "", "ie": "",
-        "email": "", "telefone": "", "cnae_descricao": "", "data_situacao": ""
+        "email": "", "telefone": "", "cnae_descricao": "", "data_situacao": "",
+        "qsa_json": "[]"
     }
 
     # 1) BrasilAPI
@@ -139,7 +138,11 @@ def consultar_cnpj(cnpj):
         data["telefone"] = f"({ddd}) {tel}" if ddd and tel else ""
         data["cnae_descricao"] = d.get("cnae_fiscal_descricao", "") or ""
         data["data_situacao"] = d.get("data_situacao_cadastral", "") or ""
-        # IE
+
+        # Extrair QSA
+        qsa_list = d.get("qsa", [])
+        data["qsa_json"] = json.dumps(qsa_list, ensure_ascii=False) if qsa_list else "[]"
+
         data["ie"] = extrair_ie(cnpj, d)
         return data
 
@@ -163,6 +166,10 @@ def consultar_cnpj(cnpj):
             data["cnae_descricao"] = atv[0].get("text", "")
         data["data_situacao"] = d.get("data_situacao", "") or ""
         data["ie"] = d.get("inscricao_estadual", "") or extrair_ie(cnpj)
+
+        # QSA da ReceitaWS (opcional, se disponível)
+        qsa_list = d.get("qsa", [])
+        data["qsa_json"] = json.dumps(qsa_list, ensure_ascii=False) if qsa_list else "[]"
         return data
 
     # 3) CNPJ.ws (último fallback)
@@ -187,9 +194,19 @@ def consultar_cnpj(cnpj):
         data["cnae_descricao"] = cnae.get("descricao", "") if cnae else ""
         data["data_situacao"] = estab.get("data_situacao_cadastral", "") or ""
         data["ie"] = extrair_ie(cnpj, d)
+
+        # QSA do CNPJ.ws
+        socios = d.get("socios", [])
+        qsa_list = []
+        for s in socios:
+            qsa_list.append({
+                "nome_socio": s.get("nome", ""),
+                "qualificacao_socio": s.get("qualificacao", ""),
+                "data_entrada_sociedade": s.get("data_entrada", "")
+            })
+        data["qsa_json"] = json.dumps(qsa_list, ensure_ascii=False) if qsa_list else "[]"
         return data
 
-    # Se todas falharem
     data["nome"] = "ERRO NA CONSULTA"
     return data
 
@@ -249,12 +266,13 @@ if pagina == "📋 CNPJ":
                     cur.execute("""
                         INSERT OR REPLACE INTO cnpj
                         (cnpj, nome, cidade, uf, cep, situacao, simples, endereco, ie,
-                         email, telefone, cnae_descricao, data_situacao)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                         email, telefone, cnae_descricao, data_situacao, qsa_json)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """, (
                         dados["cnpj"], dados["nome"], dados["cidade"], dados["uf"], dados["cep"],
                         dados["situacao"], dados["simples"], dados["endereco"], dados["ie"],
-                        dados["email"], dados["telefone"], dados["cnae_descricao"], dados["data_situacao"]
+                        dados["email"], dados["telefone"], dados["cnae_descricao"], dados["data_situacao"],
+                        dados["qsa_json"]
                     ))
                     conn.commit()
                     conn.close()
@@ -299,7 +317,28 @@ if pagina == "📋 CNPJ":
                     st.markdown(f"**Telefone:** {selecionado['telefone'] or 'Não informado'}")
                     st.markdown(f"**CNAE Principal:** {selecionado['cnae_descricao'] or 'Não informado'}")
 
-# ------------------- CEP -------------------
+                # Exibição do QSA
+                qsa_str = selecionado.get('qsa_json', '[]')
+                try:
+                    socios = json.loads(qsa_str)
+                    if socios:
+                        st.markdown("---")
+                        st.subheader("👥 Quadro de Sócios e Administradores (QSA)")
+                        df_socios = pd.DataFrame(socios)
+                        # Seleciona colunas mais relevantes (nome, qualificação, data)
+                        colunas_qsa = ['nome_socio', 'qualificacao_socio', 'data_entrada_sociedade']
+                        colunas_existentes = [c for c in colunas_qsa if c in df_socios.columns]
+                        if colunas_existentes:
+                            df_socios = df_socios[colunas_existentes]
+                            df_socios.columns = ['Nome do Sócio', 'Qualificação', 'Data de Entrada']
+                            st.dataframe(df_socios, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("Dados de QSA em formato desconhecido.")
+                    else:
+                        st.info("Nenhum dado de QSA disponível para este CNPJ.")
+                except json.JSONDecodeError:
+                    st.warning("Erro ao processar os dados do QSA.")
+
 # ------------------- CEP -------------------
 elif pagina == "📍 CEP":
     st.header("Consulta de CEP")
@@ -320,9 +359,7 @@ elif pagina == "📍 CEP":
                 progress_bar = st.progress(0)
                 for i, cep in enumerate(lista):
                     dados = consultar_cep(cep)
-                    # Se a consulta retornou um CEP válido (tem a chave 'cep')
                     if dados and "cep" in dados and "erro" not in dados:
-                        # Extrai apenas os campos de interesse
                         item = {
                             "CEP": dados.get("cep", ""),
                             "Logradouro": dados.get("logradouro", ""),
@@ -331,7 +368,7 @@ elif pagina == "📍 CEP":
                             "UF": dados.get("uf", "")
                         }
                         resultados_cep.append(item)
-                        # Salvar no banco (opcional)
+                        # Salvar no banco
                         conn = sqlite3.connect(DB)
                         cur = conn.cursor()
                         cur.execute("""
@@ -344,7 +381,6 @@ elif pagina == "📍 CEP":
                         conn.commit()
                         conn.close()
                     else:
-                        # Adiciona uma linha de erro para exibição
                         resultados_cep.append({
                             "CEP": cep,
                             "Logradouro": "CEP inválido ou não encontrado",
@@ -360,6 +396,7 @@ elif pagina == "📍 CEP":
                     st.dataframe(df_cep, use_container_width=True, hide_index=True)
                 else:
                     st.warning("Nenhum CEP válido foi retornado.")
+
 # ------------------- DASHBOARD -------------------
 elif pagina == "📊 Dashboard":
     st.header("Dashboard")
@@ -371,12 +408,19 @@ elif pagina == "📊 Dashboard":
         col1, col2 = st.columns(2)
         with col1:
             st.metric("Total de CNPJs", len(df_cnpj))
-            fig1 = px.pie(df_cnpj, names="uf", title="Distribuição por UF")
-            st.plotly_chart(fig1, use_container_width=True)
+            if "uf" in df_cnpj.columns and not df_cnpj["uf"].isnull().all():
+                fig1 = px.pie(df_cnpj, names="uf", title="Distribuição por UF")
+                st.plotly_chart(fig1, use_container_width=True)
         with col2:
-            st.metric("Total de CEPs", pd.read_sql("SELECT COUNT(*) FROM cep", sqlite3.connect(DB)).iloc[0,0])
-            fig2 = px.bar(df_cnpj["situacao"].value_counts().reset_index(), x="situacao", y="count", title="Situação Cadastral")
-            st.plotly_chart(fig2, use_container_width=True)
+            conn_cep = sqlite3.connect(DB)
+            total_cep = pd.read_sql("SELECT COUNT(*) FROM cep", conn_cep).iloc[0,0]
+            conn_cep.close()
+            st.metric("Total de CEPs", total_cep)
+            if "situacao" in df_cnpj.columns:
+                situacao_counts = df_cnpj["situacao"].value_counts().reset_index()
+                situacao_counts.columns = ["situacao", "count"]
+                fig2 = px.bar(situacao_counts, x="situacao", y="count", title="Situação Cadastral")
+                st.plotly_chart(fig2, use_container_width=True)
 
         st.subheader("Últimas consultas")
         st.dataframe(df_cnpj.tail(10), use_container_width=True, hide_index=True)
