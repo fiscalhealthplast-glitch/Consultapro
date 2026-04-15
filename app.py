@@ -356,6 +356,30 @@ if pagina == "📋 CNPJ":
                 except json.JSONDecodeError:
                     st.warning("Erro ao processar os dados do QSA.")
 
+                # --- BOTÕES PARA CENPROT E SERASA (INTELIGENTES) ---
+                st.markdown("---")
+                st.subheader("🔍 Consultas de Inadimplência (Links Externos)")
+
+                # Prepara o CNPJ limpo e identifica o estado
+                cnpj_limpo = re.sub(r'\D', '', selecionado['cnpj'])
+                uf_empresa = str(selecionado.get('uf', '')).upper()
+
+                # Define a URL do CENPROT com base na UF
+                if uf_empresa == 'SP':
+                    url_cenprot = f"https://www.protestosp.com.br/consulta-gratuita-de-protesto?documento={cnpj_limpo}"
+                else:
+                    url_cenprot = f"https://site.cenprotnacional.org.br/?cpfcnpj={cnpj_limpo}"
+
+                # URL da Serasa
+                url_serasa = f"https://empresas.serasaexperian.com.br/consulta-gratis?cnpj={cnpj_limpo}"
+
+                # Cria os botões lado a lado
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    st.link_button("📋 Consultar no CENPROT", url_cenprot, use_container_width=True)
+                with col_b2:
+                    st.link_button("📊 Consultar no Serasa", url_serasa, use_container_width=True)
+
 # ------------------- CEP -------------------
 elif pagina == "📍 CEP":
     st.header("Consulta de CEP")
