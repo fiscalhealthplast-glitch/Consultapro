@@ -6,6 +6,7 @@ import time
 import re
 import json
 import plotly.express as px
+from io import BytesIO
 
 # =========================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -167,7 +168,7 @@ def consultar_cnpj(cnpj):
         data["data_situacao"] = d.get("data_situacao", "") or ""
         data["ie"] = d.get("inscricao_estadual", "") or extrair_ie(cnpj)
 
-        # QSA da ReceitaWS (opcional, se disponível)
+        # QSA da ReceitaWS
         qsa_list = d.get("qsa", [])
         data["qsa_json"] = json.dumps(qsa_list, ensure_ascii=False) if qsa_list else "[]"
         return data
@@ -298,6 +299,26 @@ if pagina == "📋 CNPJ":
             on_select="rerun"
         )
 
+        # ---------- BOTÃO DE EXPORTAÇÃO ----------
+        st.markdown("---")
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Aba principal com todos os dados (exceto qsa_json)
+            df_export = df.drop(columns=['qsa_json'], errors='ignore')
+            df_export.to_excel(writer, sheet_name='CNPJs', index=False)
+        output.seek(0)
+        
+        col_exp1, col_exp2 = st.columns([1, 4])
+        with col_exp1:
+            st.download_button(
+                label="📥 Exportar Excel",
+                data=output,
+                file_name="consulta_cnpj.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        # -----------------------------------------
+
         if evento.selection.rows:
             idx = evento.selection.rows[0]
             selecionado = df.iloc[idx]
@@ -325,7 +346,6 @@ if pagina == "📋 CNPJ":
                         st.markdown("---")
                         st.subheader("👥 Quadro de Sócios e Administradores (QSA)")
                         df_socios = pd.DataFrame(socios)
-                        # Seleciona colunas mais relevantes (nome, qualificação, data)
                         colunas_qsa = ['nome_socio', 'qualificacao_socio', 'data_entrada_sociedade']
                         colunas_existentes = [c for c in colunas_qsa if c in df_socios.columns]
                         if colunas_existentes:
@@ -422,7 +442,12 @@ elif pagina == "📊 Dashboard":
                 fig2 = px.bar(situacao_counts, x="situacao", y="count", title="Situação Cadastral")
                 st.plotly_chart(fig2, use_container_width=True)
 
-        st.subheader("Últimas consultas")
-        st.dataframe(df_cnpj.tail(10), use_container_width=True, hide_index=True)
+        st.subheader("📋 Últimas consultas")
+        # Seleciona apenas colunas relevantes (exclui qsa_json e outros detalhes)
+        colunas_exibir = ["cnpj", "nome", "cidade", "uf", "situacao"]
+        colunas_disponiveis = [c for c in colunas_exibir if c in df_cnpj.columns]
+        df_hist = df_cnpj[colunas_disponiveis].tail(10).copy()
+        df_hist.columns = ["CNPJ", "Razão Social", "Cidade", "UF", "Situação"]
+        st.dataframe(df_hist, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhum dado histórico ainda. Faça uma consulta primeiro!")
