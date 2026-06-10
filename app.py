@@ -358,10 +358,10 @@ col1, col2, col3 = st.sidebar.columns([1, 2, 1])
 with col2:
     st.image("logo.png", use_column_width=True)  # Altere para o nome do seu arquivo
 st.sidebar.markdown("<h3 style='text-align: center;'>ConsultaPro</h3>", unsafe_allow_html=True)
-st.sidebar.markdown("*Criado por: Gabriel Antonio – Assistente Fiscal*", unsafe_allow_html=True)
 st.sidebar.markdown("---")
-
 pagina = st.sidebar.radio("Navegação", ["📋 CNPJ", "📍 CEP", "📊 Dashboard"])
+st.sidebar.markdown("---")
+st.sidebar.markdown("*Criado por: Gabriel Antonio – Assistente Fiscal*", unsafe_allow_html=True)
 
 # ------------------- CNPJ -------------------
 if pagina == "📋 CNPJ":
