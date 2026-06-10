@@ -346,7 +346,7 @@ def gerar_pdf_cnpj(dados_cnpj):
     story.append(Spacer(1, 0.5*cm))
     story.append(Paragraph(f"Relatório gerado em {time.strftime('%d/%m/%Y %H:%M')}", normal_style))
     story.append(Paragraph("ConsultaPro - Sistema de Consultas Comerciais", normal_style))
-
+    story.append(Paragraph("Criado por: Gabriel Antonio – Assistente Fiscal", normal_style))
     doc.build(story)
     buffer.seek(0)
     return buffer
@@ -358,6 +358,7 @@ col1, col2, col3 = st.sidebar.columns([1, 2, 1])
 with col2:
     st.image("logo.png", use_column_width=True)  # Altere para o nome do seu arquivo
 st.sidebar.markdown("<h3 style='text-align: center;'>ConsultaPro</h3>", unsafe_allow_html=True)
+st.sidebar.markdown("*Criado por: Gabriel Antonio – Assistente Fiscal*", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 
 pagina = st.sidebar.radio("Navegação", ["📋 CNPJ", "📍 CEP", "📊 Dashboard"])
@@ -601,3 +602,11 @@ elif pagina == "📊 Dashboard":
         st.dataframe(df_hist, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhum dado histórico ainda. Faça uma consulta primeiro!")
+
+# ⬇️ Rodapé global (aparece em todas as páginas)
+st.markdown("""
+<hr style="margin-top: 3rem;">
+<div style="text-align: center; color: gray; font-size: 0.8rem;">
+    Criado por: Gabriel Antonio – Assistente Fiscal
+</div>
+""", unsafe_allow_html=True)
